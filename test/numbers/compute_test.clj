@@ -1,12 +1,13 @@
 (ns numbers.compute-test
   (:require [clojure.test :refer [deftest is testing]]
-            [numbers.compute :as topology]
+            [numbers.compute :as compute]
             [numbers.serdes :as serdes])
   (:import (org.apache.kafka.streams.test ConsumerRecordFactory)
            (org.apache.kafka.streams StreamsBuilder TopologyTestDriver)
            (org.apache.kafka.common.serialization StringSerializer)
            (org.apache.kafka.common.serialization StringDeserializer Serializer)
-           (org.apache.kafka.streams.kstream KStream)))
+           (org.apache.kafka.streams.kstream KStream)
+           (org.apache.kafka.clients.consumer ConsumerRecord)))
 
 (def test-messages
   [{:time 1557125670789 :type "GER" :name "85" :long -92 :lat -30 :content ["eins" "null" "sechs"]}
@@ -48,13 +49,21 @@
   ([^TopologyTestDriver driver n]
    (repeatedly n #(read-output driver))))
 
-(deftest filter-test
+;; Confirm the timestamp extracted for a consumer record matches the time provided by the message
+(deftest test-timestamp-extraction
+  (let [message (first test-messages)
+        record  (ConsumerRecord. "radio-logs" 0 0 (:name message) message)]
+    (is (= 1557125670789 (.extract compute/extractor record 0)))))
+
+
+;; Demonstrate the ability to filter out messages that return false to (translator/known? message)
+(deftest test-filter-known
   (let [builder (StreamsBuilder.)]
-    (-> ^KStream (topology/stream builder)
-        (topology/filter-known)
+    (-> ^KStream (compute/stream builder)
+        (compute/filter-known)
         (.to "output"))
 
-    (with-open [driver (TopologyTestDriver. (.build builder) topology/config)]
+    (with-open [driver (TopologyTestDriver. (.build builder) compute/config)]
 
       (send-messages driver test-messages)
 
@@ -65,15 +74,16 @@
               {:time 1557125670812 :type "ENG" :name "426" :long 78 :lat 26 :content ["six" "three"]}]
              (read-output driver 5))))))
 
-(deftest branch-test-rest-of-world
+;; Split the stream in two, testing the new rest-of-world stream first
+(deftest test-branch-rest-of-world
   (let [builder (StreamsBuilder.)]
-    (-> ^KStream (topology/stream builder)
-        (topology/filter-known)
-        (topology/branch-scott-base)
+    (-> ^KStream (compute/stream builder)
+        (compute/filter-known)
+        (compute/branch-scott-base)
         first
         (.to "output"))
 
-    (with-open [driver (TopologyTestDriver. (.build builder) topology/config)]
+    (with-open [driver (TopologyTestDriver. (.build builder) compute/config)]
 
       (send-messages driver test-messages)
 
@@ -95,15 +105,16 @@
               {:time 1557125670843 :type "GER" :name "199" :long -35 :lat -11 :content ["eins" "vier"]}]
              (read-output driver 16))))))
 
-(deftest branch-test-scott-base
+;; Split the stream in two, testing the new scott base stream second
+(deftest test-branch-scott-base
   (let [builder (StreamsBuilder.)]
-    (-> ^KStream (topology/stream builder)
-        (topology/filter-known)
-        (topology/branch-scott-base)
+    (-> ^KStream (compute/stream builder)
+        (compute/filter-known)
+        (compute/branch-scott-base)
         second
         (.to "output"))
 
-    (with-open [driver (TopologyTestDriver. (.build builder) topology/config)]
+    (with-open [driver (TopologyTestDriver. (.build builder) compute/config)]
 
       (send-messages driver test-messages)
 
@@ -111,14 +122,15 @@
               {:time 1557125670824 :type "ENG" :name "NZ1" :long 166 :lat -78 :content ["two"]}]
              (read-output driver 2))))))
 
-(deftest translate-test
+;; Demonstrate the ability to mutate the stream, translating words into numeric strings
+(deftest test-translate
   (let [builder (StreamsBuilder.)]
-    (some-> (topology/stream builder)
-            (topology/filter-known)
-            (topology/translate)
+    (some-> (compute/stream builder)
+            (compute/filter-known)
+            (compute/translate)
             (.to "output"))
 
-    (with-open [driver (TopologyTestDriver. (.build builder) topology/config)]
+    (with-open [driver (TopologyTestDriver. (.build builder) compute/config)]
 
       (send-messages driver test-messages)
 
@@ -130,14 +142,15 @@
                 {:time 1557125670812 :type "ENG" :name "426" :long 78 :lat 26 :content [63]}]
                (read-output driver 5)))))))
 
-(deftest correlate-test
+;; Prove the result of grouping, windowing, and aggregating the stream into a k-table
+(deftest test-correlate
   (let [builder (StreamsBuilder.)]
-    (some-> (topology/stream builder)
-            (topology/filter-known)
-            (topology/translate)
-            (topology/correlate "PT10S-Store"))
+    (some-> (compute/stream builder)
+            (compute/filter-known)
+            (compute/translate)
+            (compute/correlate "PT10S-Store"))
 
-    (with-open [driver (TopologyTestDriver. (.build builder) topology/config)]
+    (with-open [driver (TopologyTestDriver. (.build builder) compute/config)]
 
       (send-messages driver test-messages)
 

@@ -142,7 +142,7 @@
                 {:time 1557125670812 :type "ENG" :name "426" :long 78 :lat 26 :content [63]}]
                (read-output driver 5)))))))
 
-;; Prove the result of grouping, windowing, and aggregating the stream into a k-table
+;; Prove the result of grouping, windowing, and aggregating the stream into a k-table ("PT10S-Store")
 (deftest test-correlate
   (let [builder (StreamsBuilder.)]
     (some-> (compute/stream builder)
